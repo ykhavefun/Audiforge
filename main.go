@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -33,6 +34,7 @@ type ProcessingStatus struct {
 
 var (
 	processing sync.Map
+	baseNames  sync.Map // id -> sanitized original file name (without extension)
 	templates  *template.Template
 )
 
@@ -96,11 +98,44 @@ func cleanupDirectory(path string, cleanFunc func(string) error) {
 
 func cleanUploads(path string) error {
 	if strings.HasSuffix(path, ".pdf") {
-		if err := os.Remove(path); err == nil {
+		dir := filepath.Dir(path)
+		if dir != filepath.Clean(UploadDir) {
+			// uploads live in /tmp/uploads/<id>/<name>.pdf, remove the whole <id> dir
+			if err := os.RemoveAll(dir); err == nil {
+				log.Printf("Cleaned up upload dir: %s", dir)
+			}
+		} else if err := os.Remove(path); err == nil {
 			log.Printf("Cleaned up upload file: %s", path)
 		}
 	}
 	return nil
+}
+
+// sanitizeBaseName turns the uploaded file name into a safe base name (no extension, no path).
+// Unicode (e.g. Chinese) is kept; characters that are unsafe in file names or break the
+// comma-separated Audiveris argument list are replaced or dropped.
+func sanitizeBaseName(filename string) string {
+	base := filepath.Base(strings.ReplaceAll(filename, "\\", "/"))
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	base = strings.Map(func(r rune) rune {
+		switch {
+		case r < 32 || r == 127:
+			return -1
+		case strings.ContainsRune(`/\:*?"<>|`, r):
+			return '_'
+		case r == ',':
+			return '_'
+		}
+		return r
+	}, base)
+	base = strings.Trim(base, " .")
+	if r := []rune(base); len(r) > 100 {
+		base = strings.Trim(string(r[:100]), " .")
+	}
+	if base == "" {
+		base = "score"
+	}
+	return base
 }
 
 func cleanDownloads(path string) error {
@@ -154,7 +189,17 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := uuid.New().String()
-	uploadPath := filepath.Join(UploadDir, id+".pdf")
+	baseName := sanitizeBaseName(header.Filename)
+
+	// Keep the original name: /tmp/uploads/<id>/<name>.pdf (the id dir avoids collisions).
+	// Audiveris names its output after the input file, so outputs become <name>*.mxl.
+	uploadDir := filepath.Join(UploadDir, id)
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	uploadPath := filepath.Join(uploadDir, baseName+".pdf")
+	baseNames.Store(id, baseName)
 
 	out, err := os.Create(uploadPath)
 	if err != nil {
@@ -315,6 +360,10 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 
     // Serve ZIP file
     w.Header().Set("Content-Type", "application/zip")
-    w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zip\"", id))
+    zipName := id
+    if v, ok := baseNames.Load(id); ok {
+        zipName = v.(string)
+    }
+    w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": zipName + ".zip"}))
     http.ServeFile(w, r, zipPath)
 }
