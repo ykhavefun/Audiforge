@@ -54,6 +54,8 @@ RUN mkdir -p /tmp/uploads /tmp/downloads && \
 ENV AUDIVERIS_HOME=/app/audiveris \
     UPLOAD_DIR=/tmp/uploads \
     DOWNLOAD_DIR=/tmp/downloads \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
     LOG=""
 
 EXPOSE 8080
