@@ -23,19 +23,19 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Java 21 JDK
+# Install Java 25 JDK
 RUN mkdir -p /etc/apt/keyrings && \
     wget -O /etc/apt/keyrings/adoptium.asc https://packages.adoptium.net/artifactory/api/gpg/key/public && \
     echo "deb [signed-by=/etc/apt/keyrings/adoptium.asc] https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | \
     tee /etc/apt/sources.list.d/adoptium.list && \
     apt-get update && \
-    apt-get install -y temurin-21-jdk
+    apt-get install -y temurin-25-jdk
 
-# Install Gradle 8.7
-RUN wget https://services.gradle.org/distributions/gradle-8.7-bin.zip -O /tmp/gradle.zip \
+# Install Gradle 9.1.0
+RUN wget https://services.gradle.org/distributions/gradle-9.1.0-bin.zip -O /tmp/gradle.zip \
     && unzip -d /opt /tmp/gradle.zip \
     && rm /tmp/gradle.zip
-ENV PATH="/opt/gradle-8.7/bin:${PATH}"
+ENV PATH="/opt/gradle-9.1.0/bin:${PATH}"
 
 # Build Audiveris
 WORKDIR /app
